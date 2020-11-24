@@ -306,6 +306,14 @@ type SQLiteConn struct {
 	aggregators []*aggInfo
 }
 
+func (conn *SQLiteConn)sqlite3_key(byte[] data) {
+	// int sqlite3_key(
+	// sqlite3 *db,                   /* Database to be keyed */
+	// const void *pKey, int nKey     /* The key, and the length of the key in bytes */
+	// );
+	C.sqlite3_key(conn.db, unsafe.Pointer(&data[0]), C.int(len(data)))
+}
+
 // SQLiteTx implements driver.Tx.
 type SQLiteTx struct {
 	c *SQLiteConn
