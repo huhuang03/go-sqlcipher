@@ -306,7 +306,7 @@ type SQLiteConn struct {
 	aggregators []*aggInfo
 }
 
-func (conn *SQLiteConn)sqlite3_key(byte[] data) {
+func (conn *SQLiteConn)Sqlite3_key(byte[] data) {
 	// int sqlite3_key(
 	// sqlite3 *db,                   /* Database to be keyed */
 	// const void *pKey, int nKey     /* The key, and the length of the key in bytes */
@@ -1727,10 +1727,13 @@ func (d *SQLiteDriver) Open(dsn string) (driver.Conn, error) {
 	}
 
 	if d.ConnectHook != nil {
+		fmt.Println("ConnectHook is not none")
 		if err := d.ConnectHook(conn); err != nil {
 			conn.Close()
 			return nil, err
 		}
+	} else {
+		fmt.Println("ConnectHook is none")
 	}
 	runtime.SetFinalizer(conn, (*SQLiteConn).Close)
 	return conn, nil
