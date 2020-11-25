@@ -294,6 +294,8 @@ const (
 type SQLiteDriver struct {
 	Extensions  []string
 	ConnectHook func(*SQLiteConn) error
+	// Called immidiate after open db.
+	OpenHook func(*SQLiteConn) error
 }
 
 // SQLiteConn implements driver.Conn.
@@ -306,7 +308,7 @@ type SQLiteConn struct {
 	aggregators []*aggInfo
 }
 
-func (conn *SQLiteConn)Sqlite3_key(data []byte) {
+func (conn *SQLiteConn) Sqlite3_key(data []byte) {
 	// int sqlite3_key(
 	// sqlite3 *db,                   /* Database to be keyed */
 	// const void *pKey, int nKey     /* The key, and the length of the key in bytes */
@@ -1427,6 +1429,38 @@ func (d *SQLiteDriver) Open(dsn string) (driver.Conn, error) {
 		return nil, Error{Code: ErrNo(rv)}
 	}
 
+	// USER AUTHENTICATION
+	//
+	// User Authentication is always performed even when
+	// sqlite_userauth is not compiled in, because without user authentication
+	// the authentication is a no-op.
+	//
+	// Workflow
+	//	- Authenticate
+	//		ON::SUCCESS		=> Continue
+	//		ON::SQLITE_AUTH => Return error and exit Open(...)
+	//
+	//  - Activate User Authentication
+	//		Check if the user wants to activate User Authentication.
+	//		If so then first create a temporary AuthConn to the database
+	//		This is possible because we are already successfully authenticated.
+	//
+	//	- Check if `sqlite_user`` table exists
+	//		YES				=> Add the provided user from DSN as Admin User and
+	//						   activate user authentication.
+	//		NO				=> Continue
+	//
+
+	// Create connection to SQLite
+	conn := &SQLiteConn{db: db, loc: loc, txlock: txlock}
+
+	if d.OpenHook != nil {
+		if err := d.OpenHook(conn); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+
 	exec := func(s string) error {
 		cs := C.CString(s)
 		rv := C.sqlite3_exec(db, cs, nil, nil, nil)
@@ -1455,31 +1489,6 @@ func (d *SQLiteDriver) Open(dsn string) (driver.Conn, error) {
 			return nil, err
 		}
 	}
-
-	// USER AUTHENTICATION
-	//
-	// User Authentication is always performed even when
-	// sqlite_userauth is not compiled in, because without user authentication
-	// the authentication is a no-op.
-	//
-	// Workflow
-	//	- Authenticate
-	//		ON::SUCCESS		=> Continue
-	//		ON::SQLITE_AUTH => Return error and exit Open(...)
-	//
-	//  - Activate User Authentication
-	//		Check if the user wants to activate User Authentication.
-	//		If so then first create a temporary AuthConn to the database
-	//		This is possible because we are already successfully authenticated.
-	//
-	//	- Check if `sqlite_user`` table exists
-	//		YES				=> Add the provided user from DSN as Admin User and
-	//						   activate user authentication.
-	//		NO				=> Continue
-	//
-
-	// Create connection to SQLite
-	conn := &SQLiteConn{db: db, loc: loc, txlock: txlock}
 
 	// Password Cipher has to be registered before authentication
 	if len(authCrypt) > 0 {
@@ -1727,13 +1736,10 @@ func (d *SQLiteDriver) Open(dsn string) (driver.Conn, error) {
 	}
 
 	if d.ConnectHook != nil {
-		fmt.Println("ConnectHook is not none")
 		if err := d.ConnectHook(conn); err != nil {
 			conn.Close()
 			return nil, err
 		}
-	} else {
-		fmt.Println("ConnectHook is none")
 	}
 	runtime.SetFinalizer(conn, (*SQLiteConn).Close)
 	return conn, nil
